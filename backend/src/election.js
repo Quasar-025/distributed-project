@@ -47,10 +47,13 @@ function becomeLeader(selfId) {
 }
 
 export function handleLeaderMessage(leaderId) {
+  if (currentLeader === leaderId) return false;
+  
   currentLeader = leaderId;
   isLeader = leaderId === process.env.NODE_ID;
   electionInProgress = false;
   console.log(`Leader confirmed: ${leaderId} (isLeader: ${isLeader})`);
+  return true;
 }
 
 export function resetLeader() {

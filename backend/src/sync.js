@@ -139,14 +139,16 @@ function handleMessage(ws, msg) {
   }
 
   if (msg.type === "LEADER") {
-    handleLeaderMessage(msg.leaderId);
-    peers.forEach(p => {
-      if (p.ws !== ws) {
-        try {
-          p.ws.send(JSON.stringify({ type: "LEADER", leaderId: msg.leaderId }));
-        } catch {}
-      }
-    });
+    const changed = handleLeaderMessage(msg.leaderId);
+    if (changed) {
+      peers.forEach(p => {
+        if (p.ws !== ws) {
+          try {
+            p.ws.send(JSON.stringify({ type: "LEADER", leaderId: msg.leaderId }));
+          } catch {}
+        }
+      });
+    }
     return;
   }
 }
