@@ -1,12 +1,19 @@
-import { Link } from "react-router-dom";
+import { NavLink, Link } from "react-router-dom";
 
-export default function Header() {
+export default function Header({ connected }) {
   return (
-    <nav style={{ padding: "10px", borderBottom: "1px solid #ccc" }}>
-      <Link to="/">Queue</Link> |{" "}
-      <Link to="/enqueue">Take Token</Link> |{" "}
-      <Link to="/admin">Admin</Link> |{" "}
-      <Link to="/counter">Counter</Link>
+    <nav>
+      <Link to="/" className="brand">⚡ SmartQ</Link>
+      <div className="nav-links">
+        <NavLink to="/" end>Queue</NavLink>
+        <NavLink to="/token">Get Token</NavLink>
+        <NavLink to="/counter">Counter</NavLink>
+        <NavLink to="/admin">Admin</NavLink>
+      </div>
+      <div className="status-dot">
+        <span className={`dot ${connected ? "online" : "offline"}`} />
+        {connected ? "Live" : "Offline"}
+      </div>
     </nav>
   );
 }
