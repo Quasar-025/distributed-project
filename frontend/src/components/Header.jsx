@@ -3,7 +3,7 @@ import { NavLink, Link } from "react-router-dom";
 export default function Header({ connected }) {
   return (
     <nav>
-      <Link to="/" className="brand">⚡ SmartQ</Link>
+      <Link to="/" className="brand">QueueSync</Link>
       <div className="nav-links">
         <NavLink to="/" end>Queue</NavLink>
         <NavLink to="/token">Get Token</NavLink>
