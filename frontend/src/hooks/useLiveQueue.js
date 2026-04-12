@@ -5,6 +5,7 @@ import { subscribe, connectSocket } from "../services/socket";
 export default function useLiveQueue() {
   const [queue, setQueue] = useState([]);
   const [version, setVersion] = useState(0);
+  const [summary, setSummary] = useState(null);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -13,6 +14,7 @@ export default function useLiveQueue() {
       .then(data => {
         setQueue(data.queue || []);
         setVersion(data.version || 0);
+        setSummary(data.summary || null);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -29,6 +31,7 @@ export default function useLiveQueue() {
       if (msg.type === "STATE" || msg.type === "SYNC") {
         setQueue(msg.queue || []);
         setVersion(msg.version || 0);
+        setSummary(msg.summary || null);
       }
 
       if (msg.type === "LEADER") {
@@ -40,5 +43,5 @@ export default function useLiveQueue() {
     return unsub;
   }, [refresh]);
 
-  return { queue, version, connected, loading, refresh };
+  return { queue, version, summary, connected, loading, refresh };
 }

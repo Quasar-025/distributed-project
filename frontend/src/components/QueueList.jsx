@@ -29,7 +29,7 @@ export default function QueueList({ queue, highlightId }) {
               </div>
             </div>
             <span className={`badge ${index === 0 ? "badge-serving" : "badge-waiting"}`}>
-              {index === 0 ? "Next" : "Waiting"}
+              {item.status === "PROCESSING" ? "Processing" : index === 0 ? "Next" : "Waiting"}
             </span>
           </li>
         );

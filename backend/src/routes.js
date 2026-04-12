@@ -1,5 +1,5 @@
 import express from "express";
-import { enqueue, dequeue, getState } from "./queue.js";
+import { enqueue, dequeue, getState, submitTrainingJob, getJobs, getJob } from "./queue.js";
 import { broadcastState, peers, getLeaderHttpUrl } from "./sync.js";
 import { startElection, amILeader, getLeader } from "./election.js";
 
@@ -74,8 +74,62 @@ router.post("/dequeue", async (req, res) => {
   res.json(state);
 });
 
+router.post("/jobs", async (req, res) => {
+  const leader = getLeader();
+
+  if (!leader) {
+    startElection(process.env.NODE_ID);
+    return res.status(503).json({ error: "Leader election in progress" });
+  }
+
+  if (!amILeader()) {
+    return forwardToLeader("/jobs", req, res);
+  }
+
+  const {
+    dataset,
+    operation,
+    datasetProfile,
+    model,
+    shards,
+    epochs,
+    learningRate,
+    sampleCount,
+    featureCount,
+    computeMultiplier
+  } = req.body || {};
+  const state = submitTrainingJob({
+    dataset,
+    operation,
+    datasetProfile,
+    model,
+    shards,
+    epochs,
+    learningRate,
+    sampleCount,
+    featureCount,
+    computeMultiplier,
+    createdBy: process.env.NODE_ID
+  });
+  broadcastState();
+  res.status(201).json(state);
+});
+
+router.get("/jobs", (req, res) => {
+  res.json({ jobs: getJobs() });
+});
+
+router.get("/jobs/:jobId", (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+  res.json(job);
+});
+
 router.get("/queue", (req, res) => {
-  res.json(getState());
+  const state = getState();
+  res.json({ queue: state.queue, version: state.version, summary: state.summary });
 });
 
 router.get("/status", (req, res) => {
@@ -90,7 +144,7 @@ router.get("/status", (req, res) => {
     peers: peerList,
     leader: getLeader(),
     isLeader: amILeader(),
-    queue: getState()
+    state: getState()
   });
 });
 

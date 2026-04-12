@@ -1,5 +1,7 @@
 export const NODE_ID = process.env.NODE_ID || "counter-1";
 export const PORT = process.env.PORT || 5000;
+export const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
+export const WORKER_SCRIPT = process.env.WORKER_SCRIPT || "python/worker_task.py";
 
 /*
   Add peer WebSocket URLs here

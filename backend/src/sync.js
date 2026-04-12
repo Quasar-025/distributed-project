@@ -1,9 +1,22 @@
 import { WebSocketServer } from "ws";
 import WebSocket from "ws";
 import os from "os";
-import { getState, setState, mergeState } from "./queue.js";
-import { startElection, handleLeaderMessage, getLeader, resetLeader } from "./election.js";
-import { PORT } from "./config.js";
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  getState,
+  setState,
+  mergeState,
+  getNextWaitingTask,
+  assignTask,
+  completeTask,
+  requeueExpiredTasks,
+  requeueWorkerTasks,
+  requeueTask
+} from "./queue.js";
+import { startElection, handleLeaderMessage, getLeader, resetLeader, amILeader } from "./election.js";
+import { PORT, PYTHON_BIN, WORKER_SCRIPT } from "./config.js";
 
 const HEARTBEAT_INTERVAL = 3000;
 const MAX_MISSES = 3;
@@ -22,6 +35,126 @@ export const peers = new Map();
  * Set of WebSocket connections for frontend clients
  */
 export const clients = new Set();
+const localRunningTasks = new Set();
+let roundRobinCursor = 0;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const backendRoot = path.resolve(__dirname, "..");
+const workerScriptPath = path.isAbsolute(WORKER_SCRIPT)
+  ? WORKER_SCRIPT
+  : path.resolve(backendRoot, WORKER_SCRIPT);
+
+function getWorkerPool() {
+  const workers = [{ id: process.env.NODE_ID, ws: null, local: true }];
+
+  peers.forEach((peer, peerId) => {
+    workers.push({ id: peerId, ws: peer.ws, local: false });
+  });
+
+  return workers.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+function executeTask(task, workerId, onDone, onError) {
+  if (localRunningTasks.has(task.id)) return;
+  localRunningTasks.add(task.id);
+
+  const startedAt = Date.now();
+  const child = spawn(PYTHON_BIN, [workerScriptPath], {
+    cwd: backendRoot,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+
+  let stdout = "";
+  let stderr = "";
+
+  child.stdout.on("data", chunk => {
+    stdout += chunk.toString();
+  });
+
+  child.stderr.on("data", chunk => {
+    stderr += chunk.toString();
+  });
+
+  child.on("error", (err) => {
+    localRunningTasks.delete(task.id);
+    if (onError) onError(`Worker launch error: ${err.message}`);
+  });
+
+  child.on("close", (code) => {
+    localRunningTasks.delete(task.id);
+
+    if (code !== 0) {
+      if (onError) onError(stderr.trim() || `Worker exited with code ${code}`);
+      return;
+    }
+
+    try {
+      const raw = stdout.trim().split("\n").filter(Boolean).pop() || "{}";
+      const parsed = JSON.parse(raw);
+      const result = {
+        ...parsed,
+        workerId,
+        durationMs: Date.now() - startedAt,
+        completedAt: Date.now()
+      };
+      onDone(result);
+    } catch (err) {
+      if (onError) onError(`Invalid worker output: ${err.message}`);
+    }
+  });
+
+  child.stdin.write(JSON.stringify({
+    taskId: task.id,
+    jobId: task.jobId,
+    shard: task.shard,
+    payload: task.payload || {}
+  }));
+  child.stdin.end();
+}
+
+function scheduleTasks() {
+  if (!amILeader()) return;
+
+  const leaseMs = HEARTBEAT_INTERVAL * (MAX_MISSES + 2);
+  const workers = getWorkerPool();
+  if (workers.length === 0) return;
+
+  let task = getNextWaitingTask();
+
+  while (task) {
+    const worker = workers[roundRobinCursor % workers.length];
+    roundRobinCursor += 1;
+
+    const assigned = assignTask(task.id, worker.id, leaseMs);
+    if (!assigned) {
+      task = getNextWaitingTask();
+      continue;
+    }
+
+    if (worker.local) {
+      executeTask(assigned, worker.id, (result) => {
+        completeTask(assigned.id, worker.id, result);
+        broadcastState();
+      }, () => {
+        requeueTask(assigned.id);
+        broadcastState();
+      });
+    } else {
+      try {
+        worker.ws.send(JSON.stringify({
+          type: "TASK_ASSIGN",
+          task: assigned
+        }));
+      } catch {
+        requeueTask(assigned.id);
+      }
+    }
+
+    broadcastState();
+    task = getNextWaitingTask();
+  }
+}
 
 /* =========================
    SHARED MESSAGE HANDLER
@@ -105,7 +238,7 @@ function handleMessage(ws, msg) {
 
   // SYNC = merge queues (used on reconnect)
   if (msg.type === "SYNC") {
-    const merged = mergeState(msg.queue, msg.version);
+    const merged = mergeState({ jobs: msg.jobs || [], tasks: msg.tasks || [] }, msg.version);
     console.log("Queues merged after reconnect");
 
     // Broadcast merged state to all peers
@@ -124,7 +257,7 @@ function handleMessage(ws, msg) {
   if (msg.type === "STATE") {
     const local = getState();
     if (msg.version > local.version) {
-      setState(msg.queue, msg.version);
+      setState({ jobs: msg.jobs || [], tasks: msg.tasks || [] }, msg.version);
       console.log("State updated from leader");
       
       // Propagate update to connected clients (frontends)
@@ -135,6 +268,50 @@ function handleMessage(ws, msg) {
 
   if (msg.type === "ELECTION") {
     startElection(process.env.NODE_ID);
+    return;
+  }
+
+  if (msg.type === "TASK_ASSIGN") {
+    const task = msg.task;
+    if (!task || !task.id) return;
+
+    executeTask(task, process.env.NODE_ID, (result) => {
+      try {
+        ws.send(JSON.stringify({
+          type: "TASK_RESULT",
+          taskId: task.id,
+          workerId: process.env.NODE_ID,
+          result
+        }));
+      } catch {}
+    }, (error) => {
+      try {
+        ws.send(JSON.stringify({
+          type: "TASK_FAILED",
+          taskId: task.id,
+          workerId: process.env.NODE_ID,
+          error
+        }));
+      } catch {}
+    });
+    return;
+  }
+
+  if (msg.type === "TASK_RESULT") {
+    if (!amILeader()) return;
+    if (!msg.taskId) return;
+
+    completeTask(msg.taskId, msg.workerId, msg.result);
+    broadcastState();
+    return;
+  }
+
+  if (msg.type === "TASK_FAILED") {
+    if (!amILeader()) return;
+    if (!msg.taskId) return;
+
+    requeueTask(msg.taskId);
+    broadcastState();
     return;
   }
 
@@ -175,6 +352,14 @@ function removePeerByWs(ws) {
     if (peer.ws === ws) {
       peers.delete(id);
       console.log(`Peer ${id} disconnected`);
+
+      if (amILeader()) {
+        const changed = requeueWorkerTasks(id);
+        if (changed) {
+          broadcastState();
+          scheduleTasks();
+        }
+      }
 
       if (getLeader() === id) {
         console.log(`Leader ${id} went down — starting new election`);
@@ -279,6 +464,12 @@ export function getLeaderHttpUrl() {
    ========================= */
 function startHeartbeatLoop() {
   setInterval(() => {
+    if (amILeader()) {
+      const changed = requeueExpiredTasks();
+      if (changed) broadcastState();
+      scheduleTasks();
+    }
+
     peers.forEach((peer, peerId) => {
       try {
         if (peer.ws.readyState !== WebSocket.OPEN) {
@@ -297,6 +488,12 @@ function startHeartbeatLoop() {
           console.log(`Peer ${peerId} marked DOWN`);
           peer.ws.close();
           peers.delete(peerId);
+
+          if (amILeader()) {
+            const changed = requeueWorkerTasks(peerId);
+            if (changed) broadcastState();
+          }
+
           if (getLeader() === peerId) {
             console.log(`Leader ${peerId} went down — starting new election`);
             resetLeader();
@@ -322,7 +519,11 @@ export function broadcastState() {
       if (peer.ws.readyState === WebSocket.OPEN) {
         peer.ws.send(JSON.stringify({
           type: "STATE",
-          ...state
+          version: state.version,
+          jobs: state.jobs,
+          tasks: state.tasks,
+          queue: state.queue,
+          summary: state.summary
         }));
       }
     } catch {}

@@ -1,4 +1,4 @@
-# Distributed Queue System
+# Distributed Leader-Worker Backend
 
 ## Setup
 
@@ -24,13 +24,26 @@ npm start
 - `NODE_ID`: Unique identifier for this node (default: `counter-1`)
 - `PORT`: Port to run the server on (default: `5000`)
 - `PEERS`: Comma-separated list of peer WebSocket URLs
+- `PYTHON_BIN`: Python executable for task workers (default: `python3`)
+- `WORKER_SCRIPT`: Worker script path (default: `python/worker_task.py`)
 
 ## How It Works
 
-- On startup, nodes connect to peers and elect a leader (highest NODE_ID wins).
-- **Enqueue/Dequeue requests can be sent to any node** — non-leader nodes automatically forward to the leader.
-- If the leader goes down, a new election happens automatically.
-- Queue state is synced across all nodes via WebSocket.
+- Nodes elect a leader using Bully-style priority (`counter-N` ranks by `N`).
+- Leader accepts training jobs, splits into shard tasks, and assigns workers.
+- Tasks move through `WAITING -> PROCESSING -> DONE`.
+- Workers run real Python training on each shard and return metrics (`accuracy`, `loss`) for aggregation.
+- Heartbeats detect failures and expired in-flight tasks are reassigned.
+- Job/task state is broadcast to peers and frontend clients.
+
+## API Summary
+
+- `POST /jobs` submit `{ operation, dataset, datasetProfile, model, sampleCount, featureCount, shards, epochs, computeMultiplier, learningRate }`
+- `GET /jobs` list jobs
+- `GET /jobs/:jobId` view one job with tasks
+- `GET /queue` queue-compatible task list and summary
+- `GET /status` node and cluster state
+- `POST /enqueue`, `POST /dequeue` backward-compatible queue demo routes
 
 ## Running Two Nodes
 

@@ -4,6 +4,22 @@ let currentLeader = null;
 let isLeader = false;
 let electionInProgress = false;
 
+function nodeRank(nodeId) {
+  const match = String(nodeId).match(/(\d+)$/);
+  if (!match) return Number.MIN_SAFE_INTEGER;
+  return Number(match[1]);
+}
+
+function isHigherPriority(candidateId, selfId) {
+  const candidateRank = nodeRank(candidateId);
+  const selfRank = nodeRank(selfId);
+
+  if (candidateRank === selfRank) {
+    return String(candidateId) > String(selfId);
+  }
+  return candidateRank > selfRank;
+}
+
 export function startElection(selfId) {
   if (electionInProgress) return;
 
@@ -12,9 +28,12 @@ export function startElection(selfId) {
 
   let higherNodeFound = false;
 
-  peers.forEach((_, peerId) => {
-    if (peerId > selfId) {
+  peers.forEach((peer, peerId) => {
+    if (isHigherPriority(peerId, selfId)) {
       higherNodeFound = true;
+      try {
+        peer.ws.send(JSON.stringify({ type: "ELECTION", from: selfId }));
+      } catch {}
     }
   });
 

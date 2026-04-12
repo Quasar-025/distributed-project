@@ -41,6 +41,21 @@ export async function getStatus() {
   return request("/status");
 }
 
+export async function createTrainingJob(payload) {
+  return request("/jobs", {
+    method: "POST",
+    body: JSON.stringify(payload || {})
+  });
+}
+
+export async function getJobs() {
+  return request("/jobs");
+}
+
+export async function getJob(jobId) {
+  return request(`/jobs/${jobId}`);
+}
+
 export function getBaseUrlValue() {
   return BASE_URL;
 }

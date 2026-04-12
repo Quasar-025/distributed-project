@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
-import { getQueue } from "../services/api";
 import useLiveQueue from "../hooks/useLiveQueue";
 import QueueList from "../components/QueueList";
 
 export default function PublicQueue() {
-  const { queue, version, loading, refresh } = useLiveQueue();
+  const { queue, version, summary, loading, refresh } = useLiveQueue();
 
   return (
     <div className="container">
@@ -19,9 +17,9 @@ export default function PublicQueue() {
           <div className="stat-value primary">{queue.length}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Est. Wait (last)</div>
+          <div className="stat-label">Processing</div>
           <div className="stat-value warning">
-            {queue.length > 0 ? `~${queue.length * 3} min` : "—"}
+            {summary?.processingTasks ?? 0}
           </div>
         </div>
         <div className="stat-card">

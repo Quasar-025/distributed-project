@@ -1,63 +1,302 @@
-let queue = [];
 let version = 0;
 
-export function enqueue() {
-  const token = {
-    id: `${process.env.NODE_ID}-${Date.now()}`,
-    timestamp: Date.now(),
-    origin: process.env.NODE_ID,
-    status: "WAITING"
+let state = {
+  jobs: [],
+  tasks: []
+};
+
+function now() {
+  return Date.now();
+}
+
+function bumpVersion() {
+  version += 1;
+}
+
+function buildQueueView() {
+  return state.tasks
+    .filter(task => task.status !== "DONE")
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map(task => ({
+      id: task.id,
+      timestamp: task.createdAt,
+      origin: task.createdBy,
+      status: task.status,
+      jobId: task.jobId,
+      shard: task.shard
+    }));
+}
+
+function summarizeJobs() {
+  const active = state.jobs.filter(job => job.status !== "DONE").length;
+  const completed = state.jobs.filter(job => job.status === "DONE").length;
+  return {
+    totalJobs: state.jobs.length,
+    activeJobs: active,
+    completedJobs: completed,
+    waitingTasks: state.tasks.filter(t => t.status === "WAITING").length,
+    processingTasks: state.tasks.filter(t => t.status === "PROCESSING").length,
+    doneTasks: state.tasks.filter(t => t.status === "DONE").length
   };
-  queue.push(token);
-  version++;
-  return { queue, version };
+}
+
+function recalculateJobStatus(jobId) {
+  const job = state.jobs.find(j => j.id === jobId);
+  if (!job) return null;
+
+  const jobTasks = state.tasks.filter(t => t.jobId === jobId);
+  const doneCount = jobTasks.filter(t => t.status === "DONE").length;
+  const processingCount = jobTasks.filter(t => t.status === "PROCESSING").length;
+
+  if (doneCount === jobTasks.length && jobTasks.length > 0) {
+    job.status = "DONE";
+    job.completedAt = now();
+
+    const accuracy = jobTasks.reduce((sum, t) => sum + (t.result?.accuracy || 0), 0) / jobTasks.length;
+    const loss = jobTasks.reduce((sum, t) => sum + (t.result?.loss || 0), 0) / jobTasks.length;
+
+    job.aggregation = {
+      method: "mean",
+      shards: jobTasks.length,
+      accuracy: Number(accuracy.toFixed(4)),
+      loss: Number(loss.toFixed(4))
+    };
+  } else if (processingCount > 0) {
+    job.status = "PROCESSING";
+  } else {
+    job.status = "WAITING";
+  }
+
+  return job;
+}
+
+function snapshot() {
+  return {
+    version,
+    queue: buildQueueView(),
+    jobs: state.jobs,
+    tasks: state.tasks,
+    summary: summarizeJobs()
+  };
+}
+
+export function submitTrainingJob({
+  dataset = "synthetic.csv",
+  operation = "classification",
+  datasetProfile = "auto",
+  model = "logistic-regression",
+  shards = 4,
+  epochs = 3,
+  learningRate = 0.1,
+  sampleCount = 600,
+  featureCount = 2,
+  computeMultiplier = 1,
+  createdBy = process.env.NODE_ID || "unknown"
+} = {}) {
+  const shardCount = Math.max(1, Math.min(32, Number(shards) || 1));
+  const createdAt = now();
+  const jobId = `job-${createdBy}-${createdAt}`;
+
+  const taskIds = [];
+  for (let shard = 1; shard <= shardCount; shard += 1) {
+    const taskId = `${jobId}-task-${shard}`;
+    taskIds.push(taskId);
+    state.tasks.push({
+      id: taskId,
+      jobId,
+      shard,
+      status: "WAITING",
+      createdAt,
+      updatedAt: createdAt,
+      createdBy,
+      assignedTo: null,
+      leaseUntil: null,
+      attempts: 0,
+      payload: {
+        dataset,
+        operation,
+        datasetProfile,
+        model,
+        epochs,
+        learningRate,
+        sampleCount,
+        featureCount,
+        computeMultiplier,
+        totalShards: shardCount,
+        shardIndex: shard
+      }
+    });
+  }
+
+  state.jobs.push({
+    id: jobId,
+    dataset,
+    operation,
+    datasetProfile,
+    model,
+    epochs,
+    learningRate,
+    sampleCount,
+    featureCount,
+    computeMultiplier,
+    createdBy,
+    createdAt,
+    status: "WAITING",
+    taskIds,
+    aggregation: null
+  });
+
+  bumpVersion();
+  return { jobId, ...snapshot() };
+}
+
+export function enqueue() {
+  return submitTrainingJob({ shards: 1 });
 }
 
 export function dequeue() {
-  if (queue.length > 0) {
-    queue[0].status = "DONE";
-    queue.shift();
-    version++;
-  }
-  return { queue, version };
-}
+  const next = state.tasks
+    .filter(task => task.status !== "DONE")
+    .sort((a, b) => a.createdAt - b.createdAt)[0];
 
-export function getState() {
-  return { queue, version };
-}
-
-export function setState(newQueue, newVersion) {
-  queue = newQueue;
-  version = newVersion;
-}
-
-/**
- * Merge two queues: combine unique tokens (by id), sort by timestamp,
- * and set version to the sum of both versions (guarantees higher than either).
- */
-export function mergeState(remoteQueue, remoteVersion) {
-  const merged = new Map();
-
-  // Add local tokens
-  for (const token of queue) {
-    merged.set(token.id, token);
+  if (!next) {
+    return snapshot();
   }
 
-  // Add remote tokens (skip duplicates — local copy wins if same id)
-  for (const token of remoteQueue) {
-    if (!merged.has(token.id)) {
-      merged.set(token.id, token);
+  next.status = "DONE";
+  next.updatedAt = now();
+  next.assignedTo = next.assignedTo || "manual-counter";
+  next.result = next.result || { accuracy: 1, loss: 0 };
+
+  recalculateJobStatus(next.jobId);
+  bumpVersion();
+  return snapshot();
+}
+
+export function getNextWaitingTask() {
+  const waiting = state.tasks
+    .filter(task => task.status === "WAITING")
+    .sort((a, b) => a.createdAt - b.createdAt);
+  return waiting[0] || null;
+}
+
+export function assignTask(taskId, workerId, leaseMs = 12000) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task || task.status !== "WAITING") return null;
+
+  task.status = "PROCESSING";
+  task.assignedTo = workerId;
+  task.updatedAt = now();
+  task.leaseUntil = now() + leaseMs;
+  task.attempts += 1;
+
+  recalculateJobStatus(task.jobId);
+  bumpVersion();
+  return task;
+}
+
+export function completeTask(taskId, workerId, result) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return null;
+
+  task.status = "DONE";
+  task.assignedTo = workerId || task.assignedTo;
+  task.updatedAt = now();
+  task.leaseUntil = null;
+  task.result = result || null;
+
+  const job = recalculateJobStatus(task.jobId);
+  bumpVersion();
+  return { task, job };
+}
+
+export function requeueExpiredTasks() {
+  const current = now();
+  let changed = false;
+
+  for (const task of state.tasks) {
+    if (task.status === "PROCESSING" && task.leaseUntil && task.leaseUntil < current) {
+      task.status = "WAITING";
+      task.updatedAt = current;
+      task.assignedTo = null;
+      task.leaseUntil = null;
+      changed = true;
+      recalculateJobStatus(task.jobId);
     }
   }
 
-  // Sort by timestamp ascending
-  queue = [...merged.values()]
-    .filter(t => t.status === "WAITING")
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  if (changed) bumpVersion();
+  return changed;
+}
 
-  // New version must be higher than both
-  version = Math.max(version, remoteVersion) + 1;
+export function requeueWorkerTasks(workerId) {
+  let changed = false;
 
-  console.log(`Merged queue: ${queue.length} tokens, version ${version}`);
-  return { queue, version };
+  for (const task of state.tasks) {
+    if (task.status === "PROCESSING" && task.assignedTo === workerId) {
+      task.status = "WAITING";
+      task.assignedTo = null;
+      task.leaseUntil = null;
+      task.updatedAt = now();
+      changed = true;
+      recalculateJobStatus(task.jobId);
+    }
+  }
+
+  if (changed) bumpVersion();
+  return changed;
+}
+
+export function requeueTask(taskId) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task || task.status === "DONE") return false;
+
+  task.status = "WAITING";
+  task.assignedTo = null;
+  task.leaseUntil = null;
+  task.updatedAt = now();
+
+  recalculateJobStatus(task.jobId);
+  bumpVersion();
+  return true;
+}
+
+export function getJobs() {
+  return state.jobs;
+}
+
+export function getJob(jobId) {
+  const job = state.jobs.find(item => item.id === jobId);
+  if (!job) return null;
+
+  return {
+    ...job,
+    tasks: state.tasks
+      .filter(task => task.jobId === jobId)
+      .sort((a, b) => a.shard - b.shard)
+  };
+}
+
+export function getState() {
+  return snapshot();
+}
+
+export function setState(newState, newVersion) {
+  if (!newState || typeof newState !== "object") return;
+
+  state = {
+    jobs: Array.isArray(newState.jobs) ? newState.jobs : [],
+    tasks: Array.isArray(newState.tasks) ? newState.tasks : []
+  };
+  version = Number(newVersion) || 0;
+}
+
+export function mergeState(remoteState, remoteVersion) {
+  const remoteV = Number(remoteVersion) || 0;
+  if (remoteV <= version || !remoteState) {
+    return snapshot();
+  }
+
+  setState(remoteState, remoteV);
+  return snapshot();
 }
