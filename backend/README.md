@@ -24,8 +24,14 @@ npm start
 - `NODE_ID`: Unique identifier for this node (default: `counter-1`)
 - `PORT`: Port to run the server on (default: `5000`)
 - `PEERS`: Comma-separated list of peer WebSocket URLs
-- `PYTHON_BIN`: Python executable for task workers (default: `python3`)
+- `PYTHON_BIN`: Python executable for task workers (default: `py` on Windows, `python3` on Linux/macOS)
 - `WORKER_SCRIPT`: Worker script path (default: `python/worker_task.py`)
+
+Install real dataset dependencies on each node:
+
+```bash
+py -m pip install -r python/requirements.txt
+```
 
 ## How It Works
 

@@ -3,16 +3,16 @@ import { NavLink, Link } from "react-router-dom";
 export default function Header({ connected }) {
   return (
     <nav>
-      <Link to="/" className="brand">QueueSync</Link>
+      <Link to="/" className="brand">ShardForge Lab</Link>
       <div className="nav-links">
-        <NavLink to="/" end>Queue</NavLink>
-        <NavLink to="/token">Get Token</NavLink>
-        <NavLink to="/counter">Counter</NavLink>
-        <NavLink to="/admin">Admin</NavLink>
+        <NavLink to="/" end>Cluster Monitor</NavLink>
+        <NavLink to="/token">Benchmark</NavLink>
+        <NavLink to="/counter">Node Progress</NavLink>
+        <NavLink to="/admin">Control Center</NavLink>
       </div>
       <div className="status-dot">
         <span className={`dot ${connected ? "online" : "offline"}`} />
-        {connected ? "Live" : "Offline"}
+        {connected ? "Cluster Live" : "Offline"}
       </div>
     </nav>
   );

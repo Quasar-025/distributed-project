@@ -47,10 +47,18 @@ function recalculateJobStatus(jobId) {
   const jobTasks = state.tasks.filter(t => t.jobId === jobId);
   const doneCount = jobTasks.filter(t => t.status === "DONE").length;
   const processingCount = jobTasks.filter(t => t.status === "PROCESSING").length;
+  const totalTasks = jobTasks.length;
 
-  if (doneCount === jobTasks.length && jobTasks.length > 0) {
+  job.totalTasks = totalTasks;
+  job.doneTasks = doneCount;
+  job.processingTasks = processingCount;
+  job.progressPct = totalTasks > 0 ? Number(((doneCount / totalTasks) * 100).toFixed(1)) : 0;
+  job.cpuDurationMs = jobTasks.reduce((sum, t) => sum + (t.result?.durationMs || 0), 0);
+
+  if (doneCount === totalTasks && totalTasks > 0) {
     job.status = "DONE";
     job.completedAt = now();
+    job.totalDurationMs = Math.max(0, job.completedAt - job.createdAt);
 
     const accuracy = jobTasks.reduce((sum, t) => sum + (t.result?.accuracy || 0), 0) / jobTasks.length;
     const loss = jobTasks.reduce((sum, t) => sum + (t.result?.loss || 0), 0) / jobTasks.length;
@@ -63,8 +71,10 @@ function recalculateJobStatus(jobId) {
     };
   } else if (processingCount > 0) {
     job.status = "PROCESSING";
+    job.totalDurationMs = null;
   } else {
     job.status = "WAITING";
+    job.totalDurationMs = null;
   }
 
   return job;
@@ -85,6 +95,9 @@ export function submitTrainingJob({
   operation = "classification",
   datasetProfile = "auto",
   model = "logistic-regression",
+  executionMode = "distributed",
+  benchmarkGroup = null,
+  benchmarkLabel = null,
   shards = 4,
   epochs = 3,
   learningRate = 0.1,
@@ -134,6 +147,9 @@ export function submitTrainingJob({
     operation,
     datasetProfile,
     model,
+    executionMode,
+    benchmarkGroup,
+    benchmarkLabel,
     epochs,
     learningRate,
     sampleCount,
@@ -142,6 +158,12 @@ export function submitTrainingJob({
     createdBy,
     createdAt,
     status: "WAITING",
+    progressPct: 0,
+    totalTasks: shardCount,
+    doneTasks: 0,
+    processingTasks: 0,
+    totalDurationMs: null,
+    cpuDurationMs: 0,
     taskIds,
     aggregation: null
   });

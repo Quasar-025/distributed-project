@@ -3,7 +3,7 @@ export default function QueueList({ queue, highlightId }) {
     return (
       <div className="empty">
         <div className="empty-icon">📭</div>
-        <p>Queue is empty — no one is waiting</p>
+        <p>No active shard tasks right now.</p>
       </div>
     );
   }
@@ -21,15 +21,16 @@ export default function QueueList({ queue, highlightId }) {
             <div className="left-side">
               <div className="position">{index + 1}</div>
               <div className="token-info">
-                <span className="token-id">{item.id}</span>
+                <span className="token-id">Task {item.shard ? `S${item.shard}` : item.id}</span>
                 <span className="token-meta">
-                  {item.origin && `From ${item.origin}`}
+                  {item.jobId && `Job ${String(item.jobId).slice(-10)}`}
+                  {item.origin && ` • node ${item.origin}`}
                   {item.timestamp && ` • ${new Date(item.timestamp).toLocaleTimeString()}`}
                 </span>
               </div>
             </div>
             <span className={`badge ${index === 0 ? "badge-serving" : "badge-waiting"}`}>
-              {item.status === "PROCESSING" ? "Processing" : index === 0 ? "Next" : "Waiting"}
+              {item.status === "PROCESSING" ? "Running" : item.status === "DONE" ? "Done" : index === 0 ? "Next" : "Queued"}
             </span>
           </li>
         );

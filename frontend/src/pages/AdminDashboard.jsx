@@ -5,50 +5,51 @@ import useLiveQueue from "../hooks/useLiveQueue";
 
 const PRESET_JOBS = [
   {
-    name: "Quick Classification",
-    description: "Small baseline run for sanity check",
+    name: "Iris Distributed Quick Run",
+    description: "Real dataset quick check with light parallelism",
     payload: {
       operation: "classification",
-      dataset: "synthetic.csv",
+      dataset: "sklearn:iris",
       datasetProfile: "auto",
       model: "logistic-regression",
       sampleCount: 1200,
-      featureCount: 2,
+      featureCount: 4,
       shards: 4,
-      epochs: 8,
+      epochs: 10,
       computeMultiplier: 1,
-      learningRate: 0.1
+      learningRate: 0.08,
+      executionMode: "distributed"
     }
   },
   {
-    name: "Distributed Heavy Classification",
-    description: "Designed for noticeable speedup with multiple nodes",
+    name: "Wine Benchmark",
+    description: "Good for single-vs-cluster benchmark pairs",
     payload: {
       operation: "classification",
-      dataset: "synthetic-heavy-A",
-      datasetProfile: "nl-heavy",
+      dataset: "sklearn:wine",
+      datasetProfile: "auto",
       model: "logistic-regression",
-      sampleCount: 20000,
-      featureCount: 20,
-      shards: 32,
-      epochs: 45,
-      computeMultiplier: 4,
+      sampleCount: 2000,
+      featureCount: 13,
+      shards: 8,
+      epochs: 24,
+      computeMultiplier: 2,
       learningRate: 0.06
     }
   },
   {
-    name: "Distributed Heavy Regression",
-    description: "High compute regression job with many shards",
+    name: "Diabetes Regression",
+    description: "Real regression task over tabular medical features",
     payload: {
       operation: "regression",
-      dataset: "synthetic-heavy-B",
-      datasetProfile: "wide-heavy",
+      dataset: "sklearn:diabetes",
+      datasetProfile: "auto",
       model: "linear-regression",
-      sampleCount: 26000,
-      featureCount: 28,
-      shards: 40,
-      epochs: 60,
-      computeMultiplier: 5,
+      sampleCount: 2400,
+      featureCount: 10,
+      shards: 8,
+      epochs: 25,
+      computeMultiplier: 2,
       learningRate: 0.02
     }
   }
@@ -59,7 +60,7 @@ export default function AdminDashboard({ addToast }) {
   const { version, summary, connected } = useLiveQueue();
   const [operation, setOperation] = useState("classification");
   const [datasetMode, setDatasetMode] = useState("preset");
-  const [datasetPreset, setDatasetPreset] = useState("auto");
+  const [datasetPreset, setDatasetPreset] = useState("sklearn:iris");
   const [datasetPath, setDatasetPath] = useState("synthetic.csv");
   const [datasetProfile, setDatasetProfile] = useState("auto");
   const [model, setModel] = useState("logistic-regression");
@@ -119,11 +120,11 @@ export default function AdminDashboard({ addToast }) {
       const avgDuration = stats.completedWithDuration > 0
         ? Math.round(stats.totalDuration / stats.completedWithDuration)
         : null;
-      return { workerId, ...stats, avgDuration };
+      const totalAssigned = stats.processing + stats.done;
+      const progressPct = totalAssigned > 0 ? Math.round((stats.done / totalAssigned) * 100) : 0;
+      return { workerId, ...stats, avgDuration, totalAssigned, progressPct };
     });
   }, [workerStats]);
-
-  const totalCompleted = workerRows.reduce((sum, row) => sum + row.done, 0);
 
   const modelOptions = operation === "regression"
     ? ["linear-regression"]
@@ -138,6 +139,7 @@ export default function AdminDashboard({ addToast }) {
       dataset,
       datasetProfile,
       model: baseModel,
+      executionMode: "distributed",
       sampleCount: Number(sampleCount),
       featureCount: Number(featureCount),
       shards: Number(shards),
@@ -183,8 +185,8 @@ export default function AdminDashboard({ addToast }) {
   return (
     <div className="container">
       <div className="page-header">
-        <h1>⚙️ Admin Dashboard</h1>
-        <p>Distributed ML control plane for operation selection, dataset control, and node split visibility</p>
+        <h1>Cluster Control Center</h1>
+        <p>Configure training jobs, run real datasets, and inspect worker utilization</p>
       </div>
 
       {error && (
@@ -272,10 +274,11 @@ export default function AdminDashboard({ addToast }) {
             <label>
               Dataset Preset
               <select value={datasetPreset} onChange={(e) => setDatasetPreset(e.target.value)}>
+                <option value="sklearn:iris">sklearn:iris</option>
+                <option value="sklearn:wine">sklearn:wine</option>
+                <option value="sklearn:breast-cancer">sklearn:breast-cancer</option>
+                <option value="sklearn:diabetes">sklearn:diabetes</option>
                 <option value="synthetic.csv">synthetic.csv (fallback)</option>
-                <option value="synthetic-heavy-A">synthetic-heavy-A</option>
-                <option value="synthetic-heavy-B">synthetic-heavy-B</option>
-                <option value="synthetic-demo-nonlinear">synthetic-demo-nonlinear</option>
               </select>
             </label>
           )}
@@ -406,7 +409,7 @@ export default function AdminDashboard({ addToast }) {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
-          <h2>Worker Split (Proof Of Distribution)</h2>
+          <h2>Worker Assignment Progress</h2>
         </div>
         {workerRows.length === 0 ? (
           <div className="empty" style={{ padding: 20 }}>
@@ -418,13 +421,13 @@ export default function AdminDashboard({ addToast }) {
               <li className="peer-item split-item" key={row.workerId}>
                 <span className="peer-id">{row.workerId}</span>
                 <span className="peer-url">
-                  {row.processing} processing • {row.done} done
+                  {row.processing} processing • {row.done} done • {row.totalAssigned} assigned
                   {row.avgDuration ? ` • avg ${row.avgDuration} ms` : ""}
                 </span>
                 <div className="split-bar-wrap">
                   <div
                     className="split-bar"
-                    style={{ width: `${totalCompleted > 0 ? (row.done / totalCompleted) * 100 : 0}%` }}
+                    style={{ width: `${row.progressPct}%` }}
                   />
                 </div>
               </li>
@@ -454,6 +457,9 @@ export default function AdminDashboard({ addToast }) {
                   <span className="peer-url">
                     {job.status}
                     {job.aggregation ? ` • acc ${job.aggregation.accuracy} • loss ${job.aggregation.loss}` : ""}
+                    {job.executionMode ? ` • mode ${job.executionMode}` : ""}
+                    {job.progressPct !== undefined ? ` • ${job.progressPct}%` : ""}
+                    {job.totalDurationMs ? ` • ${job.totalDurationMs} ms` : ""}
                     {job.sampleCount ? ` • samples ${job.sampleCount}` : ""}
                     {job.computeMultiplier ? ` • x${job.computeMultiplier}` : ""}
                   </span>

@@ -32,6 +32,54 @@ def load_csv_dataset(file_path: str) -> Tuple[List[List[float]], List[float]]:
     return features, labels
 
 
+def load_sklearn_dataset(dataset_name: str, operation: str) -> Tuple[List[List[float]], List[float]]:
+    try:
+        from sklearn.datasets import (  # type: ignore
+            load_breast_cancer,
+            load_diabetes,
+            load_iris,
+            load_wine,
+        )
+    except Exception as exc:  # pragma: no cover - depends on runtime env
+        raise RuntimeError(
+            "Dataset preset requires scikit-learn. Install with: pip install -r backend/python/requirements.txt"
+        ) from exc
+
+    key = dataset_name.split(":", 1)[1].strip().lower() if ":" in dataset_name else dataset_name.strip().lower()
+    loaders = {
+        "iris": load_iris,
+        "wine": load_wine,
+        "breast-cancer": load_breast_cancer,
+        "breast_cancer": load_breast_cancer,
+        "diabetes": load_diabetes,
+    }
+
+    if key not in loaders:
+        raise RuntimeError(
+            f"Unknown real dataset preset '{dataset_name}'. Use one of: sklearn:iris, sklearn:wine, sklearn:breast-cancer, sklearn:diabetes"
+        )
+
+    bundle = loaders[key]()
+    raw_x = bundle.data
+    raw_y = bundle.target
+
+    features = [[float(value) for value in row] for row in raw_x.tolist()]
+    labels_raw = [float(value) for value in raw_y.tolist()]
+
+    if operation == "regression":
+        return features, labels_raw
+
+    unique = sorted(set(labels_raw))
+    if len(unique) <= 2:
+        positive = unique[-1]
+        labels = [1.0 if value == positive else 0.0 for value in labels_raw]
+        return features, labels
+
+    pivot = unique[len(unique) // 2]
+    labels = [1.0 if value >= pivot else 0.0 for value in labels_raw]
+    return features, labels
+
+
 def generate_synthetic(total: int, seed: int) -> Tuple[List[List[float]], List[float]]:
     rng = random.Random(seed)
     features: List[List[float]] = []
@@ -210,14 +258,20 @@ def main() -> int:
 
     dataset_path = dataset if os.path.isabs(dataset) else os.path.join(os.getcwd(), dataset)
 
-    if os.path.exists(dataset_path):
-        x, y = load_csv_dataset(dataset_path)
-    else:
-        seed = abs(hash(f"{dataset}-{total_shards}-{shard_index}")) % (2 ** 31)
-        if dataset_profile == "auto":
-            x, y = generate_synthetic(sample_count, seed)
+    try:
+        if dataset.lower().startswith("sklearn:"):
+            x, y = load_sklearn_dataset(dataset, operation)
+        elif os.path.exists(dataset_path):
+            x, y = load_csv_dataset(dataset_path)
         else:
-            x, y = generate_synthetic_profile(dataset_profile, sample_count, feature_count, seed, operation)
+            seed = abs(hash(f"{dataset}-{total_shards}-{shard_index}")) % (2 ** 31)
+            if dataset_profile == "auto":
+                x, y = generate_synthetic(sample_count, seed)
+            else:
+                x, y = generate_synthetic_profile(dataset_profile, sample_count, feature_count, seed, operation)
+    except RuntimeError as err:
+        print(json.dumps({"error": str(err)}))
+        return 1
 
     if not x:
         print(json.dumps({"error": "Dataset is empty"}))
@@ -242,6 +296,7 @@ def main() -> int:
     result["model"] = chosen_model
     result["operation"] = operation
     result["datasetProfile"] = dataset_profile
+    result["dataset"] = dataset
     result["epochs"] = effective_epochs
     result["shard"] = shard_index
     print(json.dumps(result))

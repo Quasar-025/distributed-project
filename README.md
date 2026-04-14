@@ -1,17 +1,34 @@
-# Distributed ML Training Cluster (Leader + Worker)
+# ShardForge Lab (Distributed ML Benchmark Cluster)
 
-This project now implements the PDF requirements end-to-end:
+This project now focuses on practical distributed training benchmarks:
 
 - Distributed queue-backed ML job scheduling
 - Bully-style leader election
 - Task lifecycle states: `WAITING`, `PROCESSING`, `DONE`
 - Heartbeat-based fault handling with task reassignment
 - Real Python shard execution and result aggregation
+- Single-machine vs distributed comparison workflow
+- Per-machine task assignment progress bars in the UI
 
 ## Project Layout
 
 - `backend/`: leader-worker cluster, APIs, WebSocket sync/election
-- `frontend/`: real-time dashboard, public queue, counter demo view
+- `frontend/`: cluster monitor, benchmark runner, node progress, control center
+
+## Python Setup For Real Datasets
+
+Real dataset presets use scikit-learn (`sklearn:*`). Install Python deps on every machine that runs a backend node:
+
+```bash
+cd backend
+py -m pip install -r python/requirements.txt
+```
+
+If your Python launcher is not `py`, set it in `backend/.env`:
+
+```bash
+PYTHON_BIN=python
+```
 
 ## Backend Setup
 
@@ -48,8 +65,8 @@ Optional envs:
 
 ## Core APIs
 
-- `POST /jobs`: submit distributed training job
-	- body: `{ operation, dataset, datasetProfile, model, sampleCount, featureCount, shards, epochs, computeMultiplier, learningRate }`
+- `POST /jobs`: submit training job
+	- body: `{ operation, dataset, datasetProfile, model, sampleCount, featureCount, shards, epochs, computeMultiplier, learningRate, executionMode?, benchmarkGroup?, benchmarkLabel? }`
 - `GET /jobs`: list submitted jobs
 - `GET /jobs/:jobId`: fetch a job with shard/task details
 - `GET /queue`: queue-compatible live task view + state summary
@@ -71,37 +88,47 @@ Each worker task is executed by `backend/python/worker_task.py` using the config
 
 Use these payloads with `POST /jobs` to demonstrate distributed gains:
 
-1. Heavy classification:
+1. Real classification (Wine):
 ```json
 {
 	"operation": "classification",
-	"dataset": "synthetic-heavy-A",
-	"datasetProfile": "nl-heavy",
+	"dataset": "sklearn:wine",
+	"datasetProfile": "auto",
 	"model": "logistic-regression",
-	"sampleCount": 20000,
-	"featureCount": 20,
-	"shards": 32,
-	"epochs": 45,
-	"computeMultiplier": 4,
+	"sampleCount": 2000,
+	"featureCount": 13,
+	"shards": 8,
+	"epochs": 24,
+	"computeMultiplier": 2,
 	"learningRate": 0.06
 }
 ```
 
-2. Heavy regression:
+2. Real regression (Diabetes):
 ```json
 {
 	"operation": "regression",
-	"dataset": "synthetic-heavy-B",
-	"datasetProfile": "wide-heavy",
+	"dataset": "sklearn:diabetes",
+	"datasetProfile": "auto",
 	"model": "linear-regression",
-	"sampleCount": 26000,
-	"featureCount": 28,
-	"shards": 40,
-	"epochs": 60,
-	"computeMultiplier": 5,
+	"sampleCount": 2400,
+	"featureCount": 10,
+	"shards": 8,
+	"epochs": 25,
+	"computeMultiplier": 2,
 	"learningRate": 0.02
 }
 ```
+
+## How To Compare Single Vs Distributed
+
+1. Open the `Benchmark` page in the frontend.
+2. Select one of the real datasets (`sklearn:*`).
+3. Run a comparison pair.
+4. The app submits two jobs with the same configuration:
+	- Single machine: `shards=1`, `executionMode=single`
+	- Distributed: `shards=workers*2`, `executionMode=distributed`
+5. Wait for both jobs to become `DONE` and read the speedup result.
 
 ## Run Multi-node Locally
 
