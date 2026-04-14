@@ -54,7 +54,7 @@ const PRESET_JOBS = [
   }
 ];
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ addToast }) {
   const { status, error } = useLiveStatus(3000);
   const { version, summary, connected } = useLiveQueue();
   const [operation, setOperation] = useState("classification");
@@ -70,6 +70,7 @@ export default function AdminDashboard() {
   const [computeMultiplier, setComputeMultiplier] = useState(1);
   const [learningRate, setLearningRate] = useState(0.1);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
   const jobs = status?.state?.jobs || [];
   const tasks = status?.state?.tasks || [];
@@ -149,8 +150,14 @@ export default function AdminDashboard() {
 
   async function runPresetJob(preset) {
     setSubmitting(true);
+    setSubmitError(null);
     try {
       await createTrainingJob(preset.payload);
+      addToast?.(`Submitted preset job: ${preset.name}`, "success");
+    } catch (err) {
+      const message = err?.error || "Failed to submit preset job";
+      setSubmitError(message);
+      addToast?.(message, "error");
     } finally {
       setSubmitting(false);
     }
@@ -159,11 +166,15 @@ export default function AdminDashboard() {
   async function handleCreateJob(event) {
     event.preventDefault();
     setSubmitting(true);
+    setSubmitError(null);
 
     try {
       await createTrainingJob(buildPayload());
-    } catch {
-      // Errors are already exposed through polling status and toasts in the app shell.
+      addToast?.("Training job submitted", "success");
+    } catch (err) {
+      const message = err?.error || "Failed to submit training job";
+      setSubmitError(message);
+      addToast?.(message, "error");
     } finally {
       setSubmitting(false);
     }
@@ -179,6 +190,12 @@ export default function AdminDashboard() {
       {error && (
         <div className="card" style={{ borderLeft: "4px solid var(--danger)", marginBottom: 16 }}>
           ⚠️ {error}
+        </div>
+      )}
+
+      {submitError && (
+        <div className="card" style={{ borderLeft: "4px solid var(--warning)", marginBottom: 16 }}>
+          ⚠️ {submitError}
         </div>
       )}
 

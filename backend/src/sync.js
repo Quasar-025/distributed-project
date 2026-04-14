@@ -44,6 +44,33 @@ const workerScriptPath = path.isAbsolute(WORKER_SCRIPT)
   ? WORKER_SCRIPT
   : path.resolve(backendRoot, WORKER_SCRIPT);
 
+function normalizeRemoteAddress(address) {
+  if (!address) return null;
+  return address.replace(/^::ffff:/, "");
+}
+
+function tryBuildHttpUrl(host, port) {
+  if (!host || !port) return null;
+  return `http://${host}:${port}`;
+}
+
+function resolvePeerHttpUrl({ existingHttpUrl, announcedHttpUrl, ws, fallbackHttpUrl }) {
+  if (existingHttpUrl) return existingHttpUrl;
+  if (fallbackHttpUrl) return fallbackHttpUrl;
+  if (announcedHttpUrl) return announcedHttpUrl;
+
+  const remoteAddress = normalizeRemoteAddress(ws?._socket?.remoteAddress);
+  const announcedPort = (() => {
+    try {
+      return announcedHttpUrl ? new URL(announcedHttpUrl).port : "";
+    } catch {
+      return "";
+    }
+  })();
+
+  return tryBuildHttpUrl(remoteAddress, announcedPort || PORT);
+}
+
 function getWorkerPool() {
   const workers = [{ id: process.env.NODE_ID, ws: null, local: true }];
 
@@ -183,8 +210,15 @@ function handleMessage(ws, msg) {
       return;
     }
 
-    peers.set(peerId, { ws, missed: 0, httpUrl: msg.httpUrl || null });
-    console.log(`Peer ${peerId} registered (http: ${msg.httpUrl})`);
+    const existingPeer = peers.get(peerId);
+    const resolvedHttpUrl = resolvePeerHttpUrl({
+      existingHttpUrl: existingPeer?.httpUrl,
+      announcedHttpUrl: msg.httpUrl,
+      ws
+    });
+
+    peers.set(peerId, { ws, missed: 0, httpUrl: resolvedHttpUrl || null });
+    console.log(`Peer ${peerId} registered (http: announced=${msg.httpUrl || "n/a"}, using=${resolvedHttpUrl || "n/a"})`);
 
     // Send our own identity back
     ws.send(JSON.stringify({
@@ -206,8 +240,15 @@ function handleMessage(ws, msg) {
 
   if (msg.type === "HELLO_ACK") {
     const peerId = msg.peerId;
-    peers.set(peerId, { ws, missed: 0, httpUrl: msg.httpUrl || null });
-    console.log(`Peer ${peerId} acknowledged (http: ${msg.httpUrl})`);
+    const existingPeer = peers.get(peerId);
+    const resolvedHttpUrl = resolvePeerHttpUrl({
+      existingHttpUrl: existingPeer?.httpUrl,
+      announcedHttpUrl: msg.httpUrl,
+      ws
+    });
+
+    peers.set(peerId, { ws, missed: 0, httpUrl: resolvedHttpUrl || null });
+    console.log(`Peer ${peerId} acknowledged (http: announced=${msg.httpUrl || "n/a"}, using=${resolvedHttpUrl || "n/a"})`);
 
     // Send our state for merging
     ws.send(JSON.stringify({
@@ -416,8 +457,16 @@ export function connectToPeer(url) {
 
         if (msg.type === "HELLO_ACK") {
           const peerId = msg.peerId;
-          peers.set(peerId, { ws, missed: 0, httpUrl: msg.httpUrl || httpUrl });
-          console.log(`Peer ${peerId} acknowledged (http: ${msg.httpUrl || httpUrl})`);
+          const existingPeer = peers.get(peerId);
+          const resolvedHttpUrl = resolvePeerHttpUrl({
+            existingHttpUrl: existingPeer?.httpUrl,
+            announcedHttpUrl: msg.httpUrl,
+            ws,
+            fallbackHttpUrl: httpUrl
+          });
+
+          peers.set(peerId, { ws, missed: 0, httpUrl: resolvedHttpUrl || null });
+          console.log(`Peer ${peerId} acknowledged (http: announced=${msg.httpUrl || "n/a"}, using=${resolvedHttpUrl || "n/a"})`);
 
           // Send our state for merging
           ws.send(JSON.stringify({

@@ -39,7 +39,7 @@ export default function App() {
         <Route path="/" element={<PublicQueue />} />
         <Route path="/token" element={<Enqueue addToast={addToast} />} />
         <Route path="/counter" element={<CounterView addToast={addToast} />} />
-        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin" element={<AdminDashboard addToast={addToast} />} />
       </Routes>
     </BrowserRouter>
   );
