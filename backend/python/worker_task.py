@@ -80,6 +80,52 @@ def load_sklearn_dataset(dataset_name: str, operation: str) -> Tuple[List[List[f
     return features, labels
 
 
+def scale_dataset(
+    features: List[List[float]],
+    labels: List[float],
+    target_samples: int,
+    target_features: int,
+    seed: int,
+) -> Tuple[List[List[float]], List[float]]:
+    if not features:
+        return features, labels
+
+    rng = random.Random(seed)
+    base_rows = len(features)
+
+    scaled_x = [row[:] for row in features]
+    scaled_y = labels[:]
+
+    if target_samples > len(scaled_x):
+        while len(scaled_x) < target_samples:
+            src_idx = len(scaled_x) % base_rows
+            src_row = features[src_idx]
+            jittered = [value + rng.uniform(-0.01, 0.01) for value in src_row]
+            scaled_x.append(jittered)
+            scaled_y.append(labels[src_idx])
+    elif target_samples < len(scaled_x):
+        indices = list(range(len(scaled_x)))
+        rng.shuffle(indices)
+        keep = sorted(indices[:target_samples])
+        scaled_x = [scaled_x[i] for i in keep]
+        scaled_y = [scaled_y[i] for i in keep]
+
+    current_features = len(scaled_x[0])
+    if target_features > current_features:
+        for row in scaled_x:
+            base = row[:]
+            i = 0
+            while len(row) < target_features:
+                a = base[i % len(base)]
+                b = base[(i + 1) % len(base)]
+                row.append((a * b) + math.sin(a) + ((i % 5) * 0.01))
+                i += 1
+    elif target_features < current_features:
+        scaled_x = [row[:target_features] for row in scaled_x]
+
+    return scaled_x, scaled_y
+
+
 def generate_synthetic(total: int, seed: int) -> Tuple[List[List[float]], List[float]]:
     rng = random.Random(seed)
     features: List[List[float]] = []
@@ -255,6 +301,7 @@ def main() -> int:
     sample_count = max(200, min(300000, sample_count))
     feature_count = max(2, min(128, feature_count))
     compute_multiplier = max(1, min(20, compute_multiplier))
+    workload_seed = abs(hash(f"{dataset}-{sample_count}-{feature_count}-{total_shards}")) % (2 ** 31)
 
     dataset_path = dataset if os.path.isabs(dataset) else os.path.join(os.getcwd(), dataset)
 
@@ -272,6 +319,8 @@ def main() -> int:
     except RuntimeError as err:
         print(json.dumps({"error": str(err)}))
         return 1
+
+    x, y = scale_dataset(x, y, sample_count, feature_count, workload_seed)
 
     if not x:
         print(json.dumps({"error": "Dataset is empty"}))
@@ -293,6 +342,8 @@ def main() -> int:
         result = train_logistic(shard_x, shard_y, effective_epochs, learning_rate)
 
     result["records"] = len(shard_x)
+    result["actualSampleCount"] = len(x)
+    result["actualFeatureCount"] = len(x[0]) if x else 0
     result["model"] = chosen_model
     result["operation"] = operation
     result["datasetProfile"] = dataset_profile

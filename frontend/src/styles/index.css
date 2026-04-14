@@ -259,6 +259,12 @@ nav .dot.offline { background: var(--danger); }
   font-size: 13px;
 }
 
+.profile-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .progress-track {
   margin-top: 10px;
   width: 100%;

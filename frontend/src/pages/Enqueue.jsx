@@ -9,20 +9,52 @@ const DATASET_CHOICES = [
   { value: "sklearn:diabetes", label: "Diabetes (regression)" }
 ];
 
+const LONG_RUN_PROFILES = [
+  {
+    id: "minute-1",
+    label: "~1 minute",
+    description: "Balanced heavy run",
+    values: {
+      epochs: 140,
+      computeMultiplier: 10,
+      sampleCount: 120000,
+      featureCount: 64,
+      learningRate: 0.06
+    }
+  },
+  {
+    id: "minute-2",
+    label: "~2 minutes",
+    description: "Deep stress run",
+    values: {
+      epochs: 180,
+      computeMultiplier: 14,
+      sampleCount: 180000,
+      featureCount: 96,
+      learningRate: 0.05
+    }
+  }
+];
+
 function formatMs(ms) {
   if (!Number.isFinite(ms)) return "-";
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+function formatMetric(value) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return value.toFixed(4);
+}
+
 export default function Enqueue({ addToast }) {
   const { status } = useLiveStatus(3000);
   const [dataset, setDataset] = useState("sklearn:iris");
-  const [epochs, setEpochs] = useState(14);
-  const [computeMultiplier, setComputeMultiplier] = useState(2);
+  const [epochs, setEpochs] = useState(140);
+  const [computeMultiplier, setComputeMultiplier] = useState(10);
   const [learningRate, setLearningRate] = useState(0.08);
-  const [sampleCount, setSampleCount] = useState(2000);
-  const [featureCount, setFeatureCount] = useState(8);
+  const [sampleCount, setSampleCount] = useState(120000);
+  const [featureCount, setFeatureCount] = useState(64);
   const [running, setRunning] = useState(false);
   const [latestGroup, setLatestGroup] = useState(null);
 
@@ -67,6 +99,17 @@ export default function Enqueue({ addToast }) {
     if (distributed <= 0) return null;
     return Number((single / distributed).toFixed(2));
   }, [benchmarkSummary]);
+
+  function applyLongRunProfile(profileId) {
+    const profile = LONG_RUN_PROFILES.find(item => item.id === profileId);
+    if (!profile) return;
+
+    setEpochs(profile.values.epochs);
+    setComputeMultiplier(profile.values.computeMultiplier);
+    setSampleCount(profile.values.sampleCount);
+    setFeatureCount(profile.values.featureCount);
+    setLearningRate(profile.values.learningRate);
+  }
 
   async function runBenchmarkPair() {
     setRunning(true);
@@ -179,8 +222,22 @@ export default function Enqueue({ addToast }) {
             {running ? "Submitting..." : "Run Comparison Pair"}
           </button>
         </form>
+        <div className="profile-row">
+          {LONG_RUN_PROFILES.map(profile => (
+            <button
+              className="btn-outline"
+              type="button"
+              key={profile.id}
+              disabled={running}
+              onClick={() => applyLongRunProfile(profile.id)}
+            >
+              {profile.label}
+            </button>
+          ))}
+        </div>
         <p style={{ marginBottom: 0, marginTop: 12, color: "var(--muted)", fontSize: 13 }}>
           Selected dataset: {selectedInfo.label}. Workers detected: {workerCount}. Install scikit-learn on each machine to run these presets.
+          Use the ~1/~2 minute profile buttons to quickly switch to long-running jobs.
         </p>
       </div>
 
@@ -199,6 +256,8 @@ export default function Enqueue({ addToast }) {
               <p>Status: <strong>{benchmarkSummary.single?.status || "Not started"}</strong></p>
               <p>Duration: <strong>{formatMs(benchmarkSummary.single?.totalDurationMs)}</strong></p>
               <p>Progress: <strong>{benchmarkSummary.single?.progressPct ?? 0}%</strong></p>
+              <p>Accuracy: <strong>{formatMetric(benchmarkSummary.single?.aggregation?.accuracy)}</strong></p>
+              <p>Loss: <strong>{formatMetric(benchmarkSummary.single?.aggregation?.loss)}</strong></p>
               <div className="progress-track">
                 <div className="progress-fill" style={{ width: `${benchmarkSummary.single?.progressPct ?? 0}%` }} />
               </div>
@@ -208,6 +267,8 @@ export default function Enqueue({ addToast }) {
               <p>Status: <strong>{benchmarkSummary.distributed?.status || "Not started"}</strong></p>
               <p>Duration: <strong>{formatMs(benchmarkSummary.distributed?.totalDurationMs)}</strong></p>
               <p>Progress: <strong>{benchmarkSummary.distributed?.progressPct ?? 0}%</strong></p>
+              <p>Accuracy: <strong>{formatMetric(benchmarkSummary.distributed?.aggregation?.accuracy)}</strong></p>
+              <p>Loss: <strong>{formatMetric(benchmarkSummary.distributed?.aggregation?.loss)}</strong></p>
               <div className="progress-track">
                 <div className="progress-fill" style={{ width: `${benchmarkSummary.distributed?.progressPct ?? 0}%` }} />
               </div>
@@ -218,6 +279,13 @@ export default function Enqueue({ addToast }) {
                 {speedup
                   ? `Distributed speedup: ${speedup}x (higher is better)`
                   : "Speedup will appear after both runs are DONE."}
+              </p>
+              <p>
+                Result access:
+                {benchmarkSummary.single?.id ? ` GET /jobs/${benchmarkSummary.single.id}` : " -"}
+              </p>
+              <p>
+                {benchmarkSummary.distributed?.id ? `GET /jobs/${benchmarkSummary.distributed.id}` : ""}
               </p>
             </div>
           </div>
