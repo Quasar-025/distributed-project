@@ -163,7 +163,8 @@ function scheduleTasks() {
       executeTask(assigned, worker.id, (result) => {
         completeTask(assigned.id, worker.id, result);
         broadcastState();
-      }, () => {
+      }, (error) => {
+        console.error(`Task ${assigned.id} failed on ${worker.id}: ${error}`);
         requeueTask(assigned.id);
         broadcastState();
       });
@@ -211,6 +212,7 @@ function handleMessage(ws, msg) {
     }
 
     const existingPeer = peers.get(peerId);
+    const isNewOrReplacedSocket = !existingPeer || existingPeer.ws !== ws;
     const resolvedHttpUrl = resolvePeerHttpUrl({
       existingHttpUrl: existingPeer?.httpUrl,
       announcedHttpUrl: msg.httpUrl,
@@ -233,14 +235,17 @@ function handleMessage(ws, msg) {
       ...getState()
     }));
 
-    // Reset leader so both sides re-elect after reconnect
-    resetLeader();
+    // Re-elect only when this is a new or replaced peer socket.
+    if (isNewOrReplacedSocket) {
+      resetLeader();
+    }
     return;
   }
 
   if (msg.type === "HELLO_ACK") {
     const peerId = msg.peerId;
     const existingPeer = peers.get(peerId);
+    const isNewOrReplacedSocket = !existingPeer || existingPeer.ws !== ws;
     const resolvedHttpUrl = resolvePeerHttpUrl({
       existingHttpUrl: existingPeer?.httpUrl,
       announcedHttpUrl: msg.httpUrl,
@@ -256,8 +261,10 @@ function handleMessage(ws, msg) {
       ...getState()
     }));
 
-    // Reset leader so both sides re-elect after reconnect
-    resetLeader();
+    // Re-elect only when this is a new or replaced peer socket.
+    if (isNewOrReplacedSocket) {
+      resetLeader();
+    }
     return;
   }
 
@@ -351,6 +358,7 @@ function handleMessage(ws, msg) {
     if (!amILeader()) return;
     if (!msg.taskId) return;
 
+    console.error(`Task ${msg.taskId} failed on ${msg.workerId || "unknown"}: ${msg.error || "unknown error"}`);
     requeueTask(msg.taskId);
     broadcastState();
     return;
