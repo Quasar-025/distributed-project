@@ -6,7 +6,7 @@ import useLiveQueue from "../hooks/useLiveQueue";
 const PRESET_JOBS = [
   {
     name: "Iris Distributed Quick Run",
-    description: "Real dataset quick check with light parallelism",
+    description: "Dataset quick check with light parallelism",
     payload: {
       operation: "classification",
       dataset: "sklearn:iris",
@@ -39,7 +39,7 @@ const PRESET_JOBS = [
   },
   {
     name: "Diabetes Regression",
-    description: "Real regression task over tabular medical features",
+    description: "Regression task over tabular medical features",
     payload: {
       operation: "regression",
       dataset: "sklearn:diabetes",
@@ -186,7 +186,7 @@ export default function AdminDashboard({ addToast }) {
     <div className="container">
       <div className="page-header">
         <h1>Cluster Control Center</h1>
-        <p>Configure training jobs, run real datasets, and inspect worker utilization</p>
+        <p>Configure training jobs, run datasets, and inspect worker utilization</p>
       </div>
 
       {error && (

@@ -56,7 +56,7 @@ def load_sklearn_dataset(dataset_name: str, operation: str) -> Tuple[List[List[f
 
     if key not in loaders:
         raise RuntimeError(
-            f"Unknown real dataset preset '{dataset_name}'. Use one of: sklearn:iris, sklearn:wine, sklearn:breast-cancer, sklearn:diabetes"
+            f"Unknown dataset preset '{dataset_name}'. Use one of: sklearn:iris, sklearn:wine, sklearn:breast-cancer, sklearn:diabetes"
         )
 
     bundle = loaders[key]()

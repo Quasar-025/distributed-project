@@ -165,7 +165,7 @@ export default function Enqueue({ addToast }) {
         </div>
         <form className="job-form" onSubmit={(event) => { event.preventDefault(); runBenchmarkPair(); }}>
           <label>
-            Real Dataset
+            Dataset
             <select value={dataset} onChange={(event) => setDataset(event.target.value)}>
               {DATASET_CHOICES.map(option => (
                 <option key={option.value} value={option.value}>{option.label}</option>

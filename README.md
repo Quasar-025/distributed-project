@@ -6,7 +6,7 @@ This project now focuses on practical distributed training benchmarks:
 - Bully-style leader election
 - Task lifecycle states: `WAITING`, `PROCESSING`, `DONE`
 - Heartbeat-based fault handling with task reassignment
-- Real Python shard execution and result aggregation
+- Python shard execution and result aggregation
 - Single-machine vs distributed comparison workflow
 - Per-machine task assignment progress bars in the UI
 
@@ -15,9 +15,9 @@ This project now focuses on practical distributed training benchmarks:
 - `backend/`: leader-worker cluster, APIs, WebSocket sync/election
 - `frontend/`: cluster monitor, benchmark runner, node progress, control center
 
-## Python Setup For Real Datasets
+## Python Setup For Datasets
 
-Real dataset presets use scikit-learn (`sklearn:*`). Install Python deps on every machine that runs a backend node:
+Dataset presets use scikit-learn (`sklearn:*`). Install Python deps on every machine that runs a backend node:
 
 ```bash
 cd backend
@@ -88,7 +88,7 @@ Each worker task is executed by `backend/python/worker_task.py` using the config
 
 Use these payloads with `POST /jobs` to demonstrate distributed gains:
 
-1. Real classification (Wine):
+1. Classification (Wine):
 ```json
 {
 	"operation": "classification",
@@ -104,7 +104,7 @@ Use these payloads with `POST /jobs` to demonstrate distributed gains:
 }
 ```
 
-2. Real regression (Diabetes):
+2. Regression (Diabetes):
 ```json
 {
 	"operation": "regression",
@@ -123,7 +123,7 @@ Use these payloads with `POST /jobs` to demonstrate distributed gains:
 ## How To Compare Single Vs Distributed
 
 1. Open the `Benchmark` page in the frontend.
-2. Select one of the real datasets (`sklearn:*`).
+2. Select one of the datasets (`sklearn:*`).
 3. Run a comparison pair.
 4. The app submits two jobs with the same configuration:
 	- Single machine: `shards=1`, `executionMode=single`

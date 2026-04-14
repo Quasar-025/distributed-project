@@ -27,7 +27,7 @@ npm start
 - `PYTHON_BIN`: Python executable for task workers (default: `py` on Windows, `python3` on Linux/macOS)
 - `WORKER_SCRIPT`: Worker script path (default: `python/worker_task.py`)
 
-Install real dataset dependencies on each node:
+Install dataset dependencies on each node:
 
 ```bash
 py -m pip install -r python/requirements.txt
@@ -38,7 +38,7 @@ py -m pip install -r python/requirements.txt
 - Nodes elect a leader using Bully-style priority (`counter-N` ranks by `N`).
 - Leader accepts training jobs, splits into shard tasks, and assigns workers.
 - Tasks move through `WAITING -> PROCESSING -> DONE`.
-- Workers run real Python training on each shard and return metrics (`accuracy`, `loss`) for aggregation.
+- Workers run Python training on each shard and return metrics (`accuracy`, `loss`) for aggregation.
 - Heartbeats detect failures and expired in-flight tasks are reassigned.
 - Job/task state is broadcast to peers and frontend clients.
 
