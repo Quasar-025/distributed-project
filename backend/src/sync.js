@@ -55,8 +55,8 @@ function tryBuildHttpUrl(host, port) {
 }
 
 function resolvePeerHttpUrl({ existingHttpUrl, announcedHttpUrl, ws, fallbackHttpUrl }) {
-  if (existingHttpUrl) return existingHttpUrl;
   if (fallbackHttpUrl) return fallbackHttpUrl;
+  if (existingHttpUrl) return existingHttpUrl;
   if (announcedHttpUrl) return announcedHttpUrl;
 
   const remoteAddress = normalizeRemoteAddress(ws?._socket?.remoteAddress);
